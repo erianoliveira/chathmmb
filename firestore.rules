@@ -1,0 +1,55 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: messages
+    // Document ID: auto-generated
+    // Fields:
+    //   - text: string (required, 1-1000 chars)
+    //   - sender: string (required, 1-50 chars)
+    //   - timestamp: number (required)
+    //   - role: string (required, 'user' or 'it')
+    //   - sector: string (optional, 1-50 chars)
+    //   - uid: string (required, must match auth.uid)
+    //
+    // ===============================================================
+
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isAuthenticated() && request.auth.uid == uid;
+    }
+
+    function isValidMessage(data) {
+      return data.keys().hasAll(['text', 'sender', 'timestamp', 'role', 'uid']) &&
+             data.text is string && data.text.size() > 0 && data.text.size() <= 1000 &&
+             data.sender is string && data.sender.size() > 0 && data.sender.size() <= 50 &&
+             data.timestamp is number &&
+             data.role in ['user', 'it'] &&
+             (!('sector' in data) || (data.sector is string && data.sector.size() <= 50)) &&
+             data.uid == request.auth.uid;
+    }
+
+    match /messages/{messageId} {
+      // Anyone authenticated can read messages (public support chat)
+      allow read: if isAuthenticated();
+      
+      // Only authenticated users can create messages, and they must be valid
+      allow create: if isAuthenticated() && isValidMessage(request.resource.data);
+      
+      // Messages are immutable in this app for audit trail
+      allow update, delete: if false;
+    }
+
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+  }
+}
